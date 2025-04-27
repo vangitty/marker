@@ -27,9 +27,19 @@ USER appuser
 # Set environment variables to redirect cache paths
 ENV XDG_CACHE_HOME=/app/cache
 ENV PYTHONUSERBASE=/app/.local
+# Force spawn instead of fork for multiprocessing
+ENV PYTHONMULTIPROCESSING=spawn
+# Force marker to use single process
+ENV MARKER_FORCE_SINGLE_PROCESS=1
 
 # Installiere Pakete als appuser ins Home-Verzeichnis
 RUN pip install --no-cache-dir --user -r requirements.txt
+
+# === Create wrapper script ===
+USER root
+COPY marker-wrapper.sh /app/marker-wrapper.sh
+RUN chmod +x /app/marker-wrapper.sh && chown appuser:appuser /app/marker-wrapper.sh
+USER appuser
 
 # === Update PATH (als appuser) ===
 # Füge Python User bin zum PATH hinzu

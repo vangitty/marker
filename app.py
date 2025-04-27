@@ -6,20 +6,14 @@ import shutil
 from flask import Flask, request, jsonify
 import glob 
 
-# Direct import of marker functionality instead of subprocess
-try:
-    from marker.convert import convert_file
-    DIRECT_MARKER_IMPORT = True
-except ImportError:
-    DIRECT_MARKER_IMPORT = False
-
 # --- Konfiguration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO) 
 
-MARKER_CMD = "marker" 
+# Use our wrapper script instead of direct marker command
+MARKER_CMD = "/app/marker-wrapper.sh" 
 FLASK_PORT = int(os.environ.get("PORT", 5000))
 WORKDIR = "/app" 
 
@@ -42,6 +36,7 @@ def convert_pdf():
     markdown_output = None
     error_output = None
     output_md_path_found = None # Pfad zur gefundenen Markdown-Datei
+    expected_output_path = None
 
     try:
         # 1. Temporären Input-Ordner erstellen
@@ -58,83 +53,64 @@ def convert_pdf():
         expected_output_path = os.path.join(tmp_input_dir, output_basename)
         app.logger.info(f"Expecting output file named: {output_basename}")
 
-        # 3. --- Marker aufrufen (entweder direkt oder via subprocess) ---
+        # 3. --- Marker Subprocess Aufruf (Direkt auf PDF-Datei) ---
         try:
-            if DIRECT_MARKER_IMPORT:
-                # Use direct method call instead of subprocess
-                app.logger.info(f"Directly calling marker convert_file on {tmp_input_pdf_path}")
+            # Marker direkt auf der PDF-Datei aufrufen mit output_path
+            cmd_list = [
+                MARKER_CMD, 
+                tmp_input_pdf_path, 
+                "--output", expected_output_path,
+                "--device", "cpu",
+                "--ocr"
+            ]
+            
+            app.logger.info(f"Executing command: {' '.join(cmd_list)}")
+            
+            # Führe im WORKDIR aus
+            process = subprocess.run(
+                cmd_list,
+                capture_output=True, 
+                text=True,
+                encoding='utf-8',
+                check=True,
+                cwd=WORKDIR 
+            )
+            app.logger.info("Marker execution apparently successful (return code 0).")
+            
+            # stderr loggen, enthält oft wichtige Infos oder Warnungen
+            if process.stderr:
+                app.logger.warning(f"Marker stderr: {process.stderr.strip()}")
+
+            # 4. Überprüfe ob Output-Datei existiert
+            if os.path.exists(expected_output_path):
+                app.logger.info(f"Found expected output file at: {expected_output_path}")
                 try:
-                    # Set environment variable to force single process mode
-                    os.environ["MARKER_FORCE_SINGLE_PROCESS"] = "1"
-                    convert_file(
-                        input_path=tmp_input_pdf_path,
-                        output_path=expected_output_path,
-                        ocr=True,
-                        device="cpu",  # Explicitly use CPU
-                        num_processes=1  # Use single process to avoid semaphore issues
-                    )
-                    app.logger.info(f"Direct marker conversion completed successfully")
-                    
-                    if os.path.exists(expected_output_path):
-                        with open(expected_output_path, 'r', encoding='utf-8') as f:
-                            markdown_output = f.read()
-                        app.logger.info(f"Read markdown. Length: {len(markdown_output)}")
-                    else:
-                        error_output = "Direct marker conversion didn't produce expected output file"
-                        app.logger.error(error_output)
-                        
-                except Exception as e:
-                    app.logger.exception("Error during direct marker conversion")
-                    error_output = f"Direct marker error: {str(e)}"
+                    with open(expected_output_path, 'r', encoding='utf-8') as f:
+                        markdown_output = f.read()
+                    app.logger.info(f"Read markdown. Length: {len(markdown_output)}")
+                except Exception as read_err:
+                    app.logger.error(f"Could not read output file {expected_output_path}: {read_err}")
+                    error_output = f"Could not read output file: {read_err}"
             else:
-                # Marker via subprocess aufrufen (original method)
-                cmd_list = [MARKER_CMD, tmp_input_dir]
+                app.logger.error(f"Marker ran but expected output file '{expected_output_path}' not found.")
                 
-                app.logger.info(f"Executing command: {' '.join(cmd_list)}")
-                # Führe im WORKDIR aus
-                process = subprocess.run(
-                    cmd_list,
-                    capture_output=True, 
-                    text=True,
-                    encoding='utf-8',
-                    check=True,
-                    cwd=WORKDIR,
-                    env={**os.environ, "MARKER_FORCE_SINGLE_PROCESS": "1"}  # Force single process
-                )
-                app.logger.info("Marker execution apparently successful (return code 0).")
-                # stderr loggen, enthält oft wichtige Infos oder Warnungen
-                if process.stderr:
-                     # Logge stderr als Warnung, da es auch bei Erfolg vorkommen kann (wie die Downloads)
-                     app.logger.warning(f"Marker stderr: {process.stderr.strip()}")
-
-
-                # 4. Suche nach der Output-Datei (ERWEITERTE SUCHE!)
-                # Liste der möglichen Pfade erstellen
-                possible_paths = [
-                    os.path.join(WORKDIR, output_basename),         # Im Arbeitsverzeichnis?
-                    os.path.join(tmp_input_dir, output_basename)    # Im temporären Input-Verzeichnis?
-                ]
-                app.logger.info(f"Searching for output file in: {possible_paths}")
+                # Erweiterte Suche nach der Ausgabedatei
+                found_files = glob.glob(f"{tmp_input_dir}/*.md")
+                app.logger.info(f"Looking for any markdown files in directory. Found: {found_files}")
                 
-                found_md = False
-                for potential_path in possible_paths:
-                    if os.path.exists(potential_path):
-                        output_md_path_found = potential_path
-                        app.logger.info(f"Found output markdown file at: {output_md_path_found}")
-                        try:
-                            with open(output_md_path_found, 'r', encoding='utf-8') as f:
-                                markdown_output = f.read()
-                            app.logger.info(f"Read markdown. Length: {len(markdown_output)}")
-                            found_md = True
-                            break # Suche beenden
-                        except Exception as read_err:
-                            app.logger.error(f"Could not read output file {output_md_path_found}: {read_err}")
-                            error_output = f"Could not read output file: {read_err}"
-                            break # Suche bei Lesefehler abbrechen
-                
-                if not found_md and not error_output:
-                     app.logger.error(f"Marker ran but expected output file '{output_basename}' not found in searched paths.")
-                     error_output = "Marker ran but markdown file not found."
+                if found_files:
+                    # Nutze die erste gefundene MD-Datei
+                    output_md_path_found = found_files[0]
+                    app.logger.info(f"Using alternative found markdown file: {output_md_path_found}")
+                    try:
+                        with open(output_md_path_found, 'r', encoding='utf-8') as f:
+                            markdown_output = f.read()
+                        app.logger.info(f"Read markdown from alternative file. Length: {len(markdown_output)}")
+                    except Exception as read_err:
+                        app.logger.error(f"Could not read alternative output file: {read_err}")
+                        error_output = f"Could not read alternative output file: {read_err}"
+                else:
+                    error_output = "Marker ran but markdown file not found."
 
         except subprocess.CalledProcessError as e:
             app.logger.error(f"Marker execution failed with code {e.returncode}")
@@ -143,38 +119,29 @@ def convert_pdf():
             app.logger.error(f"Marker stderr: {detailed_error}")
             error_output = detailed_error # Setze details auf stderr
         except FileNotFoundError:
-             app.logger.error(f"Error: The command '{MARKER_CMD}' was not found.")
-             error_output = f"Command not found: {MARKER_CMD}"
+            app.logger.error(f"Error: The command '{MARKER_CMD}' was not found.")
+            error_output = f"Command not found: {MARKER_CMD}"
         except Exception as e:
             app.logger.exception("An unexpected error occurred during marker conversion.")
-            error_output = "Internal server error"
+            error_output = f"Unexpected error: {str(e)}"
 
     finally:
         # --- Temporäre Dateien und Ordner sicher löschen ---
         if tmp_input_dir and os.path.exists(tmp_input_dir):
             try:
-                shutil.rmtree(tmp_input_dir) # Löscht den Ordner und seinen Inhalt (PDF)
+                shutil.rmtree(tmp_input_dir) # Löscht den Ordner und seinen Inhalt
                 app.logger.info(f"Removed temporary input directory {tmp_input_dir}")
             except OSError as e:
                 app.logger.error(f"Error removing temporary input directory {tmp_input_dir}: {e}")
-        
-        # Lösche die Output-Datei, falls sie gefunden wurde (egal wo)
-        if output_md_path_found and os.path.exists(output_md_path_found):
-             try:
-                os.remove(output_md_path_found)
-                app.logger.info(f"Removed temporary output file {output_md_path_found}")
-             except OSError as e:
-                app.logger.error(f"Error removing temporary output file {output_md_path_found}: {e}")
-
 
     # --- Antwort senden ---
     if error_output:
-         # Gib die Details (oft stderr von marker) im JSON zurück
-         return jsonify({"error": "Marker conversion failed", "details": error_output}), 500
+        # Gib die Details (oft stderr von marker) im JSON zurück
+        return jsonify({"error": "Marker conversion failed", "details": error_output}), 500
     elif markdown_output is None:
-         # Sollte nicht passieren, wenn kein error_output gesetzt wurde, aber sicherheitshalber
-         app.logger.error("Conversion finished without errors, but no markdown content was retrieved.")
-         return jsonify({"error": "Marker conversion failed", "details": "No markdown content retrieved."}), 500
+        # Sollte nicht passieren, wenn kein error_output gesetzt wurde, aber sicherheitshalber
+        app.logger.error("Conversion finished without errors, but no markdown content was retrieved.")
+        return jsonify({"error": "Marker conversion failed", "details": "No markdown content retrieved."}), 500
     else:
         # Erfolg!
         return jsonify({"markdown": markdown_output})
