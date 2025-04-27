@@ -16,6 +16,7 @@ WORKDIR /app
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /home/appuser/.cache \
     && mkdir -p /home/appuser/.cache/datalab \
+    && chmod -R 777 /home/appuser/.cache \
     && chown -R appuser:appuser /home/appuser
 
 # === Install Python Dependencies ===
