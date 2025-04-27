@@ -6,7 +6,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
-    which \
 # Cleanup (gehört zum selben RUN-Befehl)
 && apt-get clean \
 && rm -rf /var/lib/apt/lists/*
@@ -66,10 +65,6 @@ USER appuser
 # === Copy Application Code ===
 # Kopiere app.py (Besitzer wird appuser sein)
 COPY app.py . 
-
-# === Debug: Show where marker is actually installed ===
-RUN which marker || echo "marker not in path" \
-    && find / -name marker -type f 2>/dev/null || echo "marker not found"
 
 # === Expose Port and Define Start Command ===
 EXPOSE 5000

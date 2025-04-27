@@ -8,15 +8,19 @@ export MARKER_FORCE_SINGLE_PROCESS=1
 # This is more reliable in container environments
 export PYTHONMULTIPROCESSING=spawn
 
-# Find the marker executable
-MARKER_PATH=$(which marker)
+# Try different possible paths for marker
+for possible_path in \
+    "/app/.local/bin/marker" \
+    "/home/appuser/.local/bin/marker" \
+    "/usr/local/bin/marker"
+do
+    if [ -x "$possible_path" ]; then
+        echo "Found marker at: $possible_path"
+        exec "$possible_path" "$@"
+        exit 0
+    fi
+done
 
-if [ -z "$MARKER_PATH" ]; then
-    echo "Error: marker executable not found in PATH"
-    exit 1
-fi
-
-echo "Using marker at: $MARKER_PATH"
-
-# Run marker with all arguments passed to this script
-exec $MARKER_PATH "$@"
+# If we reach here, we couldn't find marker
+echo "Error: marker executable not found in common paths"
+exit 1
