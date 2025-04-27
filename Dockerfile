@@ -15,6 +15,7 @@ WORKDIR /app
 # Erstelle User UND stelle sicher, dass sein Home + Cache-Verzeichnis ihm gehört
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /home/appuser/.cache \
+    && mkdir -p /home/appuser/.cache/datalab \
     && chown -R appuser:appuser /home/appuser
 
 # === Install Python Dependencies ===
