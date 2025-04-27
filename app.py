@@ -54,13 +54,10 @@ def convert_pdf():
 
         # 3. --- Marker Subprocess Aufruf (mit korrekten Optionen) ---
         try:
-            # Pass the input directory to marker
-            # marker uses the directory containing the PDF, not the PDF file itself
+            # Pass just the input directory to marker - use minimal options
             cmd_list = [
                 MARKER_CMD, 
-                tmp_input_dir,
-                "--device", "cpu",
-                "--ocr"
+                tmp_input_dir
             ]
             
             app.logger.info(f"Executing command: {' '.join(cmd_list)}")
@@ -79,6 +76,8 @@ def convert_pdf():
             # stderr loggen, enthält oft wichtige Infos oder Warnungen
             if process.stderr:
                 app.logger.warning(f"Marker stderr: {process.stderr.strip()}")
+            if process.stdout:
+                app.logger.info(f"Marker stdout: {process.stdout.strip()}")
 
             # 4. Überprüfe ob Output-Datei existiert
             if os.path.exists(expected_output_path):
