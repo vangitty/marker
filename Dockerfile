@@ -21,15 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
     procps \
-    pdftotext \
-    # In case pdftotext is not in poppler-utils on some systems
+    # poppler-utils enthält bereits pdftotext
     xpdf \
     # For debugging
     htop \
     vim \
     curl \
     # ARM64 specific dependencies
-    glibc-source \
     python3-dev \
     build-essential \
     # Cleanup
