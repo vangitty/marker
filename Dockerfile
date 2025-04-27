@@ -5,7 +5,7 @@ FROM python:3.11-slim-bullseye
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
-    poppler-utils \  # <--- HIER MUSS DER BACKSLASH HIN!
+    poppler-utils \
 # Cleanup (gehört zum selben RUN-Befehl)
 && apt-get clean \
 && rm -rf /var/lib/apt/lists/*
