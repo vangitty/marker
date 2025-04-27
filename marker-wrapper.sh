@@ -1,17 +1,13 @@
 #!/bin/bash
-# Simplified wrapper for marker
+# Final wrapper for marker that avoids multiprocessing conflicts
 
 # Create a temporary Python script to run marker directly
 cat > /tmp/run_marker.py << 'EOF'
 # Direct Python script to run marker
 import os
 import sys
-import multiprocessing
 
-# Force spawn method globally
-multiprocessing.set_start_method('spawn', force=True)
-
-# Set environment variables
+# Set environment variables - let Python's multiprocessing configure itself
 os.environ["MARKER_FORCE_SINGLE_PROCESS"] = "1"
 os.environ["PYTHONMULTIPROCESSING"] = "spawn"
 
