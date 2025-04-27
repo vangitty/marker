@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
+    procps \
 # Cleanup (gehört zum selben RUN-Befehl)
 && apt-get clean \
 && rm -rf /var/lib/apt/lists/*
@@ -43,22 +44,6 @@ ENV PATH="/app/.local/bin:/home/appuser/.local/bin:${PATH}"
 USER root
 COPY marker-wrapper.sh /app/marker-wrapper.sh
 RUN chmod +x /app/marker-wrapper.sh && chown appuser:appuser /app/marker-wrapper.sh
-
-# Find where marker is actually installed and create a symbolic link if needed
-RUN su - appuser -c "pip show -f marker-pdf | grep -E 'bin/marker$' || true" > /tmp/marker_location.txt \
-    && if [ -s /tmp/marker_location.txt ]; then \
-         MARKER_PATH=$(cat /tmp/marker_location.txt | tr -d ' '); \
-         if [ -n "$MARKER_PATH" ]; then \
-           SITE_PACKAGES=$(pip show marker-pdf | grep Location | cut -d' ' -f2); \
-           FULL_PATH="$SITE_PACKAGES/$MARKER_PATH"; \
-           if [ -f "$FULL_PATH" ]; then \
-             echo "Found marker at $FULL_PATH"; \
-             mkdir -p /app/.local/bin; \
-             ln -sf "$FULL_PATH" /app/.local/bin/marker; \
-             chown -R appuser:appuser /app/.local; \
-           fi; \
-         fi; \
-       fi
 
 USER appuser
 

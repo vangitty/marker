@@ -1,26 +1,49 @@
 #!/bin/bash
-# Simple wrapper for marker that sets special environment variables
+# Advanced wrapper for marker that modifies Python to fix multiprocessing issues
 
-# Force marker to use single process mode
+# Create a temporary Python patch file
+cat > /tmp/mp_patch.py << 'EOF'
+# Monkey-patch Python's multiprocessing to avoid semaphore leaks
+import os
+import sys
+import multiprocessing.spawn
+import multiprocessing.util
+
+# Force spawn method globally
+multiprocessing.set_start_method('spawn', force=True)
+
+# Override the cleanup function to be more aggressive
+original_cleanup = multiprocessing.util._cleanup_remaining_children
+
+def patched_cleanup():
+    try:
+        original_cleanup()
+    except Exception as e:
+        print(f"Warning: Error during cleanup: {e}", file=sys.stderr)
+    # Force kill any remaining child processes
+    os.system("pkill -P $$")
+
+multiprocessing.util._cleanup_remaining_children = patched_cleanup
+
+# Now import and run marker
+from marker.scripts.convert import convert_cli
+sys.exit(convert_cli())
+EOF
+
+# Force marker to use single process mode and spawn method
 export MARKER_FORCE_SINGLE_PROCESS=1
-
-# Force Python multiprocessing to use "spawn" method instead of "fork"
-# This is more reliable in container environments
 export PYTHONMULTIPROCESSING=spawn
 
-# Try different possible paths for marker
-for possible_path in \
-    "/app/.local/bin/marker" \
-    "/home/appuser/.local/bin/marker" \
-    "/usr/local/bin/marker"
-do
-    if [ -x "$possible_path" ]; then
-        echo "Found marker at: $possible_path"
-        exec "$possible_path" "$@"
-        exit 0
-    fi
-done
+# Find python executable
+PYTHON_PATH=$(which python || which python3)
 
-# If we reach here, we couldn't find marker
-echo "Error: marker executable not found in common paths"
-exit 1
+if [ -z "$PYTHON_PATH" ]; then
+    echo "Error: Python executable not found"
+    exit 1
+fi
+
+echo "Using Python at: $PYTHON_PATH"
+echo "Running marker with patched multiprocessing..."
+
+# Run our patched Python script with all arguments passed to this script
+exec $PYTHON_PATH /tmp/mp_patch.py "$@"
