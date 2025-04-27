@@ -1,44 +1,50 @@
 # === Base Image ===
 FROM python:3.11-slim-bullseye
 
-# === System Dependencies (Pandoc) ===
+# === Set environment variables ===
 ENV DEBIAN_FRONTEND=noninteractive
+# Force marker to use single process mode
+ENV MARKER_FORCE_SINGLE_PROCESS=1
+# Force spawn instead of fork for multiprocessing - critical for ARM64
+ENV PYTHONMULTIPROCESSING=spawn
+# Disable Ray if marker uses it
+ENV RAY_DISABLE=1
+ENV RAY_DISABLE_IMPORT_WARNING=1
+# Redirect cache paths
+ENV XDG_CACHE_HOME=/app/cache
+ENV PYTHONUSERBASE=/app/.local
+
+# === System Dependencies ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
     procps \
-# Cleanup (gehört zum selben RUN-Befehl)
-&& apt-get clean \
-&& rm -rf /var/lib/apt/lists/*
+    # ARM64 specific dependencies
+    glibc-source \
+    python3-dev \
+    build-essential \
+    # Cleanup
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # === Setup Application Directory and User ===
 WORKDIR /app
-# Erstelle User UND stelle sicher, dass sein Home + Cache-Verzeichnis ihm gehört
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/cache/datalab \
     && chmod -R 777 /app/cache \
     && chown -R appuser:appuser /app
 
 # === Install Python Dependencies ===
-# Kopiere requirements.txt (Besitzer root ist ok)
-COPY requirements.txt . 
-# Wechsle zum non-root user
+COPY requirements.txt .
 USER appuser
 
-# Set environment variables to redirect cache paths
-ENV XDG_CACHE_HOME=/app/cache
-ENV PYTHONUSERBASE=/app/.local
-# Force spawn instead of fork for multiprocessing
-ENV PYTHONMULTIPROCESSING=spawn
-# Force marker to use single process
-ENV MARKER_FORCE_SINGLE_PROCESS=1
-
-# Installiere Pakete als appuser ins Home-Verzeichnis
-RUN pip install --no-cache-dir --user -r requirements.txt
-
-# === Update PATH (als appuser) ===
-# Füge Python User bin zum PATH hinzu - mehrere mögliche Pfade
+# Update PATH
 ENV PATH="/app/.local/bin:/home/appuser/.local/bin:${PATH}"
+
+# Install packages as appuser
+RUN pip install --no-cache-dir --user -r requirements.txt && \
+    # Force reinstall marker-pdf if needed for ARM64
+    pip install --no-cache-dir --user --force-reinstall marker-pdf
 
 # === Create wrapper script ===
 USER root
@@ -48,10 +54,8 @@ RUN chmod +x /app/marker-wrapper.sh && chown appuser:appuser /app/marker-wrapper
 USER appuser
 
 # === Copy Application Code ===
-# Kopiere app.py (Besitzer wird appuser sein)
-COPY app.py . 
+COPY app.py .
 
 # === Expose Port and Define Start Command ===
 EXPOSE 5000
-# CMD läuft als appuser
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "300", "app:app"]
