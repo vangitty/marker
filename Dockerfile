@@ -42,9 +42,7 @@ USER appuser
 ENV PATH="/app/.local/bin:/home/appuser/.local/bin:${PATH}"
 
 # Install packages as appuser
-RUN pip install --no-cache-dir --user -r requirements.txt && \
-    # Force reinstall marker-pdf if needed for ARM64
-    pip install --no-cache-dir --user --force-reinstall marker-pdf
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # === Create wrapper script ===
 USER root
