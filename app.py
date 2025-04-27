@@ -2,7 +2,7 @@ import os
 import subprocess
 import tempfile
 import logging
-import shutil # Zum Löschen von Verzeichnissen
+import shutil # Wieder benötigt zum Löschen des Input-Ordners
 from flask import Flask, request, jsonify
 import glob 
 
@@ -14,6 +14,7 @@ app.logger.setLevel(logging.INFO)
 
 MARKER_CMD = "marker" 
 FLASK_PORT = int(os.environ.get("PORT", 5000))
+WORKDIR = "/app" # Arbeitsverzeichnis, wo die Ausgabe landen könnte
 
 # --- API Endpunkt ---
 @app.route('/convert', methods=['POST'])
@@ -23,59 +24,57 @@ def convert_pdf():
     if 'file' not in request.files:
         app.logger.warning("No file part in the request")
         return jsonify({"error": "No file part in the request"}), 400
-    
+
     file = request.files['file']
-    # Original-Dateinamen für später merken
     original_filename = file.filename 
     if original_filename == '' or not original_filename.lower().endswith(".pdf"):
         app.logger.warning(f"No file selected or file is not a PDF: {original_filename}")
         return jsonify({"error": "No PDF file selected"}), 400
 
     tmp_input_dir = None
-    tmp_output_dir = None
     markdown_output = None
     error_output = None
-    output_md_path_found = None # Pfad zur gefundenen Markdown-Datei
+    output_md_path_found = None # Pfad zur gefundenen Markdown-Datei im WORKDIR
 
     try:
         # 1. Temporären Input-Ordner erstellen
         tmp_input_dir = tempfile.mkdtemp()
         app.logger.info(f"Created temporary input directory {tmp_input_dir}")
 
-        # 2. Pfad zur PDF *innerhalb* des Input-Ordners erstellen
-        # Wichtig: Verwende den originalen Dateinamen, damit Marker ihn verarbeiten kann
+        # 2. PDF *in* den Input-Ordner speichern
         tmp_input_pdf_path = os.path.join(tmp_input_dir, original_filename)
         file.save(tmp_input_pdf_path)
         app.logger.info(f"Saved uploaded PDF to temporary input directory: {tmp_input_pdf_path}")
 
-        # 3. Temporären Output-Ordner erstellen
-        tmp_output_dir = tempfile.mkdtemp()
-        app.logger.info(f"Created temporary output directory {tmp_output_dir}")
+        # Erwarteten Output-Dateinamen im WORKDIR (!) ermitteln
+        expected_output_filename = f"{os.path.splitext(original_filename)[0]}.md"
+        # Voller Pfad, wo wir die Datei nach dem Lauf erwarten
+        output_md_path_expected_in_workdir = os.path.join(WORKDIR, expected_output_filename)
+        app.logger.info(f"Expecting output file at: {output_md_path_expected_in_workdir}")
 
-        # 4. --- Marker Subprocess Aufruf (mit Input- UND Output-Ordner) ---
+
+        # 3. --- Marker Subprocess Aufruf (NUR mit Input-Ordner) ---
         try:
-            # Marker aufrufen: marker <input_FOLDER> <output_FOLDER>
-            cmd_list = [MARKER_CMD, tmp_input_dir, tmp_output_dir] 
-            
+            # Marker nur mit Input-Ordner aufrufen
+            cmd_list = [MARKER_CMD, tmp_input_dir] 
+
             app.logger.info(f"Executing command: {' '.join(cmd_list)}")
+            # Führe im WORKDIR aus, da wir die Ausgabe dort vermuten
             process = subprocess.run(
                 cmd_list,
                 capture_output=True, 
                 text=True,
                 encoding='utf-8',
-                check=True 
+                check=True,
+                cwd=WORKDIR # Wichtig: Im Arbeitsverzeichnis ausführen
             )
             app.logger.info("Marker execution apparently successful (return code 0).")
             if process.stderr:
                  app.logger.warning(f"Marker stderr: {process.stderr.strip()}")
 
-            # 5. Finde und lese die erzeugte .md Datei im Output-Ordner
-            # Der Dateiname sollte dem Original entsprechen, aber mit .md
-            expected_output_filename = f"{os.path.splitext(original_filename)[0]}.md"
-            output_md_path_expected = os.path.join(tmp_output_dir, expected_output_filename)
-            
-            if os.path.exists(output_md_path_expected):
-                output_md_path_found = output_md_path_expected
+            # 4. Suche nach der Output-Datei im WORKDIR
+            if os.path.exists(output_md_path_expected_in_workdir):
+                output_md_path_found = output_md_path_expected_in_workdir
                 app.logger.info(f"Found expected output markdown file at: {output_md_path_found}")
                 try:
                     with open(output_md_path_found, 'r', encoding='utf-8') as f:
@@ -85,16 +84,9 @@ def convert_pdf():
                     app.logger.error(f"Could not read output file {output_md_path_found}: {read_err}")
                     error_output = f"Could not read output file: {read_err}"
             else:
-                 app.logger.error(f"Marker ran but expected output file '{expected_output_filename}' not found in output directory '{tmp_output_dir}'.")
-                 # Liste den Inhalt des Output-Ordners zur Diagnose auf
-                 try:
-                     dir_content = os.listdir(tmp_output_dir)
-                     app.logger.error(f"Actual content of output dir: {dir_content}")
-                 except Exception as list_err:
-                      app.logger.error(f"Could not list output directory content: {list_err}")
-                 error_output = "Marker ran but markdown file not found in output directory."
+                 app.logger.error(f"Marker ran but expected output file '{expected_output_filename}' not found in workdir '{WORKDIR}'.")
+                 error_output = "Marker ran but markdown file not found in workdir."
 
-        # ... (Rest der Fehlerbehandlung: CalledProcessError, FileNotFoundError, etc.) ...
         except subprocess.CalledProcessError as e:
             app.logger.error(f"Marker execution failed with code {e.returncode}")
             app.logger.error(f"Marker stderr: {e.stderr.strip()}")
@@ -107,20 +99,22 @@ def convert_pdf():
             error_output = "Internal server error"
 
     finally:
-        # --- Temporäre Ordner sicher löschen ---
+        # --- Temporäre Dateien und Ordner sicher löschen ---
         if tmp_input_dir and os.path.exists(tmp_input_dir):
             try:
                 shutil.rmtree(tmp_input_dir) 
                 app.logger.info(f"Removed temporary input directory {tmp_input_dir}")
             except OSError as e:
                 app.logger.error(f"Error removing temporary input directory {tmp_input_dir}: {e}")
-        
-        if tmp_output_dir and os.path.exists(tmp_output_dir):
-            try:
-                shutil.rmtree(tmp_output_dir) 
-                app.logger.info(f"Removed temporary output directory {tmp_output_dir}")
-            except OSError as e:
-                app.logger.error(f"Error removing temporary output directory {tmp_output_dir}: {e}")
+
+        # Lösche die Output-Datei im WORKDIR, falls sie gefunden wurde
+        if output_md_path_found and os.path.exists(output_md_path_found):
+             try:
+                os.remove(output_md_path_found)
+                app.logger.info(f"Removed temporary output file {output_md_path_found}")
+             except OSError as e:
+                app.logger.error(f"Error removing temporary output file {output_md_path_found}: {e}")
+        # Temporäres Output-Verzeichnis wird nicht mehr benötigt/erstellt
 
 
     # --- Antwort senden ---
