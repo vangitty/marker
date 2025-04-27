@@ -36,7 +36,6 @@ def convert_pdf():
     markdown_output = None
     error_output = None
     output_md_path_found = None # Pfad zur gefundenen Markdown-Datei
-    expected_output_path = None
 
     try:
         # 1. Temporären Input-Ordner erstellen
@@ -53,13 +52,13 @@ def convert_pdf():
         expected_output_path = os.path.join(tmp_input_dir, output_basename)
         app.logger.info(f"Expecting output file named: {output_basename}")
 
-        # 3. --- Marker Subprocess Aufruf (Direkt auf PDF-Datei) ---
+        # 3. --- Marker Subprocess Aufruf (mit korrekten Optionen) ---
         try:
-            # Marker direkt auf der PDF-Datei aufrufen mit output_path
+            # Pass the input directory to marker
+            # marker uses the directory containing the PDF, not the PDF file itself
             cmd_list = [
                 MARKER_CMD, 
-                tmp_input_pdf_path, 
-                "--output", expected_output_path,
+                tmp_input_dir,
                 "--device", "cpu",
                 "--ocr"
             ]
@@ -110,7 +109,20 @@ def convert_pdf():
                         app.logger.error(f"Could not read alternative output file: {read_err}")
                         error_output = f"Could not read alternative output file: {read_err}"
                 else:
-                    error_output = "Marker ran but markdown file not found."
+                    # Check if the file might be in the working directory instead
+                    workdir_output = os.path.join(WORKDIR, output_basename)
+                    if os.path.exists(workdir_output):
+                        app.logger.info(f"Found output file in working directory: {workdir_output}")
+                        try:
+                            with open(workdir_output, 'r', encoding='utf-8') as f:
+                                markdown_output = f.read()
+                            app.logger.info(f"Read markdown from working directory. Length: {len(markdown_output)}")
+                            output_md_path_found = workdir_output
+                        except Exception as read_err:
+                            app.logger.error(f"Could not read output file from working directory: {read_err}")
+                            error_output = f"Could not read output file from working directory: {read_err}"
+                    else:
+                        error_output = "Marker ran but markdown file not found in any location."
 
         except subprocess.CalledProcessError as e:
             app.logger.error(f"Marker execution failed with code {e.returncode}")
@@ -127,6 +139,13 @@ def convert_pdf():
 
     finally:
         # --- Temporäre Dateien und Ordner sicher löschen ---
+        if output_md_path_found and os.path.exists(output_md_path_found) and output_md_path_found.startswith(WORKDIR):
+            try:
+                os.remove(output_md_path_found)
+                app.logger.info(f"Removed output file in working directory: {output_md_path_found}")
+            except OSError as e:
+                app.logger.error(f"Error removing output file in working directory: {e}")
+                
         if tmp_input_dir and os.path.exists(tmp_input_dir):
             try:
                 shutil.rmtree(tmp_input_dir) # Löscht den Ordner und seinen Inhalt
