@@ -137,7 +137,9 @@ def convert_pdf():
                     capture_output=True, 
                     text=True
                 )
-                app.logger.info(f"Found pandoc: {pandoc_version.stdout.split('\n')[0]}")
+                # Korrigierte Zeile ohne Backslash im f-String
+                first_line = pandoc_version.stdout.split('\n')[0] if pandoc_version.stdout else "Unknown"
+                app.logger.info(f"Found pandoc: {first_line}")
                 
                 # Konvertiere mit pandoc
                 app.logger.info(f"Converting {tmp_input_pdf_path} with pandoc")
