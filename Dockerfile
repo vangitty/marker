@@ -13,12 +13,21 @@ ENV RAY_DISABLE_IMPORT_WARNING=1
 # Redirect cache paths
 ENV XDG_CACHE_HOME=/app/cache
 ENV PYTHONUSERBASE=/app/.local
+# Set timeouts
+ENV MARKER_TIMEOUT=60
 
 # === System Dependencies ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
     procps \
+    pdftotext \
+    # In case pdftotext is not in poppler-utils on some systems
+    xpdf \
+    # For debugging
+    htop \
+    vim \
+    curl \
     # ARM64 specific dependencies
     glibc-source \
     python3-dev \
@@ -53,6 +62,9 @@ USER appuser
 
 # === Copy Application Code ===
 COPY app.py .
+
+# === Health check ===
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD curl -f http://localhost:5000/ || exit 1
 
 # === Expose Port and Define Start Command ===
 EXPOSE 5000
