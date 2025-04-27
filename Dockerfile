@@ -14,22 +14,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 # Erstelle User UND stelle sicher, dass sein Home + Cache-Verzeichnis ihm gehört
 RUN useradd --create-home --shell /bin/bash appuser \
-    && mkdir -p /home/appuser/.cache \
-    && mkdir -p /home/appuser/.cache/datalab \
-    && chmod -R 777 /home/appuser/.cache \
-    && chown -R appuser:appuser /home/appuser
+    && mkdir -p /app/cache/datalab \
+    && chmod -R 777 /app/cache \
+    && chown -R appuser:appuser /app
 
 # === Install Python Dependencies ===
 # Kopiere requirements.txt (Besitzer root ist ok)
 COPY requirements.txt . 
 # Wechsle zum non-root user
 USER appuser
+
+# Set environment variables to redirect cache paths
+ENV XDG_CACHE_HOME=/app/cache
+ENV PYTHONUSERBASE=/app/.local
+
 # Installiere Pakete als appuser ins Home-Verzeichnis
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # === Update PATH (als appuser) ===
 # Füge Python User bin zum PATH hinzu
-ENV PATH="/home/appuser/.local/bin:${PATH}"
+ENV PATH="/app/.local/bin:${PATH}"
 
 # === Copy Application Code ===
 # Kopiere app.py (Besitzer wird appuser sein)
