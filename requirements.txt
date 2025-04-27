@@ -1,9 +1,4 @@
 Flask>=2.0.0
 gunicorn>=23.0.0
-# Pin the marker version to a recent stable version that exists
 marker-pdf==1.6.2
-# Explicitly use a CPU-only version of PyTorch to avoid ARM64 issues
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.0.1+cpu
-# Dependencies that might help with multiprocessing
 python-multipart>=0.0.6
